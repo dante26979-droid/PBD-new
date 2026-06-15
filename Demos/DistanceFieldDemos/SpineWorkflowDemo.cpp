@@ -117,6 +117,7 @@ enum class WorkflowSceneLayerRole
 	NerveContext,
 	OtherDiscContext,
 	LigamentReference,
+	LigamentBreakContext,
 	TargetDiscReference,
 	BackContext,
 	MuscleContext,
@@ -290,7 +291,7 @@ bool gRetractorAssetLoaded = false;
 std::string gRetractorAssetPath;
 bool gWorkflowGUIControlsRegistered = false;
 
-bool gAutoFixedOperationEnabled = true;
+bool gAutoFixedOperationEnabled = false;
 double gLastRenderMs = 0.0;
 DemoFlowSummary gDemoFlowSummary;
 
@@ -886,6 +887,7 @@ namespace
 		addWorkflowSceneLayer("scene_nerve_context", "sj.obj", WorkflowSceneLayerRole::NerveContext);
 		addWorkflowSceneLayer("scene_other_discs_context", "other_discs.obj", WorkflowSceneLayerRole::OtherDiscContext);
 		addWorkflowSceneLayer("scene_ligament_reference", "rendai_tex.obj", WorkflowSceneLayerRole::LigamentReference);
+		addWorkflowSceneLayer("scene_ligament_break_context", "rendai_break.obj", WorkflowSceneLayerRole::LigamentBreakContext);
 		addWorkflowSceneLayer("scene_target_disc_reference", "target_disc.obj", WorkflowSceneLayerRole::TargetDiscReference);
 		addWorkflowSceneLayer("scene_back_context", "back.obj", WorkflowSceneLayerRole::BackContext);
 		addWorkflowSceneLayer("scene_muscle_context", "jirou.obj", WorkflowSceneLayerRole::MuscleContext);
@@ -913,6 +915,10 @@ namespace
 			return stage != WorkflowStage::Completed || discResultAvailable;
 		case WorkflowSceneLayerRole::LigamentReference:
 			return (stage == WorkflowStage::BoneGrinding) && !ligamentResultAvailable;
+		case WorkflowSceneLayerRole::LigamentBreakContext:
+			return (stage == WorkflowStage::DiscRemoval) &&
+				ligamentResultAvailable &&
+				!discResultAvailable;
 		case WorkflowSceneLayerRole::TargetDiscReference:
 			return !discResultAvailable &&
 				(stage == WorkflowStage::BoneGrinding ||
@@ -1018,15 +1024,19 @@ namespace
 				false,
 				false);
 		const bool stage3HidesDefaultLigament =
-			workflowVisibleSceneLayerCount(
+			!workflowSceneLayerRoleVisible(
+				WorkflowSceneLayerRole::LigamentReference,
 				WorkflowStage::DiscRemoval,
 				true,
 				true,
-				false) < workflowVisibleSceneLayerCount(
-					WorkflowStage::RetractionTransition,
-					true,
-					true,
-					false);
+				false);
+		const bool stage3ShowsBreakLigamentContext =
+			workflowSceneLayerRoleVisible(
+				WorkflowSceneLayerRole::LigamentBreakContext,
+				WorkflowStage::DiscRemoval,
+				true,
+				true,
+				false);
 		const bool completedHidesDefaultDisc =
 			workflowVisibleSceneLayerCount(
 				WorkflowStage::Completed,
@@ -1040,6 +1050,7 @@ namespace
 		return stage2KeepsBoneContext &&
 			stage2HidesDefaultLigament &&
 			stage3HidesDefaultLigament &&
+			stage3ShowsBreakLigamentContext &&
 			completedHidesDefaultDisc;
 	}
 
@@ -1053,6 +1064,7 @@ namespace
 		case WorkflowSceneLayerRole::NerveContext:
 		case WorkflowSceneLayerRole::OtherDiscContext:
 		case WorkflowSceneLayerRole::LigamentReference:
+		case WorkflowSceneLayerRole::LigamentBreakContext:
 		case WorkflowSceneLayerRole::TargetDiscReference:
 		case WorkflowSceneLayerRole::BackContext:
 		case WorkflowSceneLayerRole::MuscleContext:
@@ -1088,6 +1100,7 @@ namespace
 			textureId = 4u;
 			return true;
 		case WorkflowSceneLayerRole::LigamentReference:
+		case WorkflowSceneLayerRole::LigamentBreakContext:
 			textureId = 5u;
 			return true;
 		case WorkflowSceneLayerRole::GrindingLgToolContext:
@@ -1530,7 +1543,7 @@ void buildStageContext(WorkflowStageContext& ctx, WorkflowStage stage)
 		break;
 	case WorkflowStage::LigamentRemoval:
 		ctx.stageName = "Ligament Grasp";
-		ctx.activeAssetPath = "rendai_tex.obj";
+		ctx.activeAssetPath = "rendai_notex.obj";
 		ctx.preferredToolAssetPath = "bone_rongeur_vertical.obj";
 		ctx.fallbackToolAssetPath = "qianzi.obj";
 		ctx.replayPath = "data/selftest/tetmodel/spine-rendai-hit-path.json";
@@ -1631,6 +1644,26 @@ std::size_t applySweptSDFEdit(WorkflowStageContext& ctx, const Vector3r& toolPos
 bool isWorkflowSoftFractureStage(const WorkflowStage stage)
 {
 	return (stage == WorkflowStage::LigamentRemoval) || (stage == WorkflowStage::DiscRemoval);
+}
+
+bool isWorkflowLigamentAssetName(const std::string& assetName)
+{
+	return (assetName == "rendai_notex.obj") || (assetName == "rendai_tex.obj");
+}
+
+bool isWorkflowSoftParticleFixed(const WorkflowStage stage, const Vector3r& position)
+{
+	switch (stage)
+	{
+	case WorkflowStage::LigamentRemoval:
+		return (position.z() < static_cast<Real>(-2.5)) ||
+			(position.z() > static_cast<Real>(2.4)) ||
+			(position.y() < static_cast<Real>(2.3));
+	case WorkflowStage::DiscRemoval:
+		return position.y() < static_cast<Real>(-4.0);
+	default:
+		return false;
+	}
 }
 
 std::vector<std::array<unsigned int, 2> > collectWorkflowTetEdges(const TetModel& tetModel)
@@ -1827,6 +1860,8 @@ std::vector<std::array<unsigned int, 2> > collectWorkflowTetEdgesExcluding(
 
 		unsigned int bestParticle = offset;
 		bool foundParticle = false;
+		Real bestDist2 = static_cast<Real>(0.0);
+		bool foundFromScript = false;
 		if (ctx.softScript.enabled && !gWorkflowHapticToolActive && !ctx.softScriptSelectionSeeded)
 		{
 			const unsigned int scriptedParticle = offset + ctx.softScript.selectedParticle;
@@ -1836,11 +1871,12 @@ std::vector<std::array<unsigned int, 2> > collectWorkflowTetEdgesExcluding(
 				bestParticle = scriptedParticle;
 				ctx.softScriptSelectionSeeded = true;
 				foundParticle = true;
+				foundFromScript = true;
 			}
 		}
 		if (!foundParticle)
 		{
-			Real bestDist2 = REAL_MAX;
+			bestDist2 = REAL_MAX;
 			for (unsigned int local = 0u; local < vertexCount; local++)
 			{
 				const unsigned int particleId = offset + local;
@@ -1857,6 +1893,13 @@ std::vector<std::array<unsigned int, 2> > collectWorkflowTetEdgesExcluding(
 				}
 			}
 			if (!foundParticle)
+				return;
+		}
+		if (gWorkflowHapticToolActive && !foundFromScript)
+		{
+			const Real selectionRadius =
+				PBD::DemoHaptics::liveHapticSoftTissueFractureRadius(ctx.toolRadius) * static_cast<Real>(1.25);
+			if (bestDist2 > selectionRadius * selectionRadius)
 				return;
 		}
 
@@ -2316,28 +2359,10 @@ std::vector<std::array<unsigned int, 2> > collectWorkflowTetEdgesExcluding(
 
 	ParticleData& pd = model->getParticles();
 	const unsigned int offset = tetModel->getIndexOffset();
-	Real minY = REAL_MAX;
-	Real maxY = -REAL_MAX;
 	for (unsigned int i = offset; i < offset + tetModel->getParticleMesh().numVertices(); i++)
 	{
-		const Real y = pd.getPosition(i).y();
-		minY = std::min(minY, y);
-		maxY = std::max(maxY, y);
-	}
-	const Real yExtent = std::max(maxY - minY, static_cast<Real>(0.0));
-	const Real fixedEndBand = std::min(
-		std::max(yExtent * static_cast<Real>(0.08), static_cast<Real>(0.35)),
-		yExtent * static_cast<Real>(0.25));
-	for (unsigned int i = offset; i < offset + tetModel->getParticleMesh().numVertices(); i++)
-	{
-		Real mass = static_cast<Real>(1.0);
-		if ((ctx.stage == WorkflowStage::LigamentRemoval) && (fixedEndBand > static_cast<Real>(0.0)))
-		{
-			const Real y = pd.getPosition(i).y();
-			if ((y <= minY + fixedEndBand) || (y >= maxY - fixedEndBand))
-				mass = static_cast<Real>(0.0);
-		}
-		pd.setMass(i, mass);
+		const bool fixedParticle = isWorkflowSoftParticleFixed(ctx.stage, pd.getPosition(i));
+		pd.setMass(i, fixedParticle ? static_cast<Real>(0.0) : static_cast<Real>(1.0));
 	}
 
 	VertexData& visVertices = tetModel->getVisVertices();
@@ -2400,20 +2425,28 @@ bool applyWorkflowSoftFractureStep(WorkflowStageContext& ctx, const Vector3r& to
 
 	if (ctx.softCutApplied && !ctx.softDraggedFragmentParticles.empty())
 	{
+		if (toolDelta.squaredNorm() <= static_cast<Real>(1.0e-12))
+			return false;
 		applyWorkflowParticleDelta(pd, ctx.softDraggedFragmentParticles, toolDelta);
+		ctx.softCutQueryState.markPositionsDirty();
 		ctx.softDraggedDistance += toolDelta.norm();
 		refreshWorkflowSoftDisplayMesh(ctx, *tetModel, pd, ctx.softLastFractureEdges, true);
 		return true;
 	}
 
+	bool movedSelectedParticles = false;
 	if (!ctx.softSelectedParticles.empty())
 	{
 		const Vector3r preCutDelta =
 			(ctx.softScript.enabled && !gWorkflowHapticToolActive) ? ctx.softScript.preCutParticleDelta : toolDelta;
-		applyWorkflowParticleDelta(pd, ctx.softSelectedParticles, preCutDelta);
+		if (preCutDelta.squaredNorm() > static_cast<Real>(1.0e-12))
+		{
+			applyWorkflowParticleDelta(pd, ctx.softSelectedParticles, preCutDelta);
+			ctx.softCutQueryState.markPositionsDirty();
+			movedSelectedParticles = true;
+		}
 	}
 
-	ctx.softCutQueryState.markPositionsDirty();
 	const Clock::time_point toolQueryStart = Clock::now();
 	const ToolCutInteraction::EdgePairs hitEdges = ctx.softCutQueryState.queryCutEdgesAt(
 		pd.getVertices(),
@@ -2425,7 +2458,11 @@ bool applyWorkflowSoftFractureStep(WorkflowStageContext& ctx, const Vector3r& to
 	ctx.lastToolQueryMs = elapsedMs(toolQueryStart);
 	if (hitEdges.empty() && ctx.softPendingCutHitEdges.empty())
 	{
-		refreshWorkflowSoftDisplayMesh(ctx, *tetModel, pd, ctx.softLastFractureEdges, false);
+		if (movedSelectedParticles)
+		{
+			refreshWorkflowSoftDisplayMesh(ctx, *tetModel, pd, ctx.softLastFractureEdges, false);
+			return true;
+		}
 		return false;
 	}
 
@@ -2482,7 +2519,11 @@ bool applyWorkflowSoftFractureStep(WorkflowStageContext& ctx, const Vector3r& to
 			ctx.softPendingCutHitEdges = candidateHitEdges;
 			ctx.softPendingCutFragmentParticles = catchFragmentParticles;
 		}
-		refreshWorkflowSoftDisplayMesh(ctx, *tetModel, pd, ctx.softLastFractureEdges, false);
+		if (movedSelectedParticles)
+		{
+			refreshWorkflowSoftDisplayMesh(ctx, *tetModel, pd, ctx.softLastFractureEdges, false);
+			return true;
+		}
 		return false;
 	}
 
@@ -2505,7 +2546,11 @@ bool applyWorkflowSoftFractureStep(WorkflowStageContext& ctx, const Vector3r& to
 	}
 	if (cutResult.fractureDelta.inactiveConstraintIds.empty())
 	{
-		refreshWorkflowSoftDisplayMesh(ctx, *tetModel, pd, ctx.softLastFractureEdges, false);
+		if (movedSelectedParticles)
+		{
+			refreshWorkflowSoftDisplayMesh(ctx, *tetModel, pd, ctx.softLastFractureEdges, false);
+			return true;
+		}
 		return false;
 	}
 
@@ -3440,7 +3485,7 @@ void completeAutoDemoLigamentTear()
 			(model != nullptr) ? static_cast<unsigned int>(model->getTetModels().size()) : 0u;
 		gAutoDemoState.stage2DiscRenderOnly =
 			(gActiveStageContext.stage == WorkflowStage::LigamentRemoval) &&
-			(gActiveStageContext.activeAssetPath == "rendai_tex.obj") &&
+			isWorkflowLigamentAssetName(gActiveStageContext.activeAssetPath) &&
 			(gActiveStageContext.activeAssetPath != "target_disc.obj") &&
 			workflowSceneLayerLabelLoaded("scene_target_disc_reference");
 		captureStageWarpedMesh(gActiveStageContext, "ligament_result");
@@ -3480,7 +3525,7 @@ void completeAutoDemoDiscPull()
 		gAutoDemoState.stage3LigamentRenderOnly =
 			(gActiveStageContext.stage == WorkflowStage::DiscRemoval) &&
 			(gActiveStageContext.activeAssetPath == "target_disc.obj") &&
-			(gActiveStageContext.activeAssetPath != "rendai_tex.obj") &&
+			!isWorkflowLigamentAssetName(gActiveStageContext.activeAssetPath) &&
 			hasPreservedMeshLabel("ligament_result");
 		if (gWorkflowFixedSummaryMode)
 		{
@@ -3756,6 +3801,9 @@ bool updateWorkflowLiveHapticTool()
 		return false;
 	}
 
+	moveWorkflowToolVisualTo(sample.position);
+	printWorkflowHapticDiagnostics("haptic_sample", false);
+
 	const bool justActivated = sample.active && !gWorkflowHapticToolWasActive;
 	const bool justReleased = !sample.active && gWorkflowHapticToolWasActive;
 	if (justActivated && isWorkflowSoftFractureStage(gWorkflowStage))
@@ -3771,8 +3819,6 @@ bool updateWorkflowLiveHapticTool()
 		return false;
 	}
 	gWorkflowHapticToolWasActive = true;
-	moveWorkflowToolVisualTo(sample.position);
-	printWorkflowHapticDiagnostics("haptic_sample", false);
 
 	if (gWorkflowStage == WorkflowStage::BoneGrinding)
 	{
@@ -3854,7 +3900,7 @@ void timeStep()
 
 // --- Render ---
 
-	void renderWorkflowSceneLayers()
+void renderWorkflowSceneLayers()
 	{
 		ensureWorkflowSceneLayersLoaded();
 		for (WorkflowSceneLayer& layer : gWorkflowSceneLayers)
@@ -3867,6 +3913,61 @@ void timeStep()
 		}
 	}
 
+bool renderActiveSoftTetModel()
+{
+	SimulationModel* model = Simulation::getCurrent()->getModel();
+	if ((model == nullptr) || model->getTetModels().empty() || (base == nullptr))
+		return false;
+	TetModel* tetModel = model->getTetModels()[0];
+	if (tetModel == nullptr)
+		return false;
+
+	const ParticleData& pd = model->getParticles();
+	const float surfaceColor[4] = { 0.1f, 0.4f, 0.7f, 1.0f };
+	bool rendered = false;
+
+	base->shaderBegin(surfaceColor);
+	glUniform3fv(base->getShader().getUniform("surface_color"), 1, surfaceColor);
+	const VertexData& vdVis = tetModel->getVisVertices();
+	if (vdVis.size() > 0u)
+	{
+		const VertexData& renderVD =
+			tetModel->getRenderVisVertices().size() > 0u ? tetModel->getRenderVisVertices() : vdVis;
+		const IndexedFaceMesh& visMesh =
+			tetModel->getRenderVisMesh().numVertices() > 0u ? tetModel->getRenderVisMesh() : tetModel->getVisMesh();
+		if ((renderVD.size() > 0u) && (visMesh.numFaces() > 0u))
+		{
+			Visualization::drawMesh(renderVD, visMesh, 0u, surfaceColor);
+			rendered = true;
+		}
+	}
+	else
+	{
+		const IndexedFaceMesh& surfaceMesh =
+			tetModel->getRenderVisMesh().numVertices() > 0u ? tetModel->getRenderVisMesh() : tetModel->getSurfaceMesh();
+		if (surfaceMesh.numFaces() > 0u)
+		{
+			Visualization::drawMesh(pd, surfaceMesh, tetModel->getIndexOffset(), surfaceColor);
+			rendered = true;
+		}
+	}
+
+	const std::vector<FracturePatchMesh>& patches = tetModel->getFracturePatches();
+	for (size_t patchIndex = 0u; patchIndex < patches.size(); patchIndex++)
+	{
+		if (!workflowPatchAllowedForCopy(workflowPatchTypeAt(*tetModel, patchIndex), WorkflowPatchCopyMode::VisibleSoftFragmentOnly))
+			continue;
+		const FracturePatchMesh& patch = patches[patchIndex];
+		if ((patch.numRenderVertices() == 0u) || (patch.numRenderFaces() == 0u))
+			continue;
+		glUniform3fv(base->getShader().getUniform("surface_color"), 1, surfaceColor);
+		Visualization::drawMesh(patch.getRenderVertexData(), patch.getRenderSurfaceMesh(), 0u, surfaceColor);
+		rendered = true;
+	}
+	base->shaderEnd();
+	return rendered;
+}
+
 void renderActiveStageMesh()
 {
 	if (gWorkflowStage == WorkflowStage::Completed)
@@ -3875,6 +3976,8 @@ void renderActiveStageMesh()
 		(gActiveStageContext.softDisplayVD.size() > 0u) &&
 		(gActiveStageContext.softDisplayMesh.numFaces() > 0u))
 	{
+		if (renderActiveSoftTetModel())
+			return;
 		float softColor[4];
 		float foregroundColor[4];
 		workflowActiveSoftColors(gWorkflowStage, softColor, foregroundColor);
@@ -3907,10 +4010,13 @@ void renderPreservedMeshes()
 	{
 		if (!asset.visible) continue;
 		if (!isRenderableMeshReady(asset)) continue;
+		if ((gWorkflowStage == WorkflowStage::DiscRemoval) && (asset.label == "ligament_result"))
+			continue;
 
 		float* color = otherColor;
 		if (asset.label == "bone_result") color = boneColor;
-		else if (asset.label == "bone_grind_patch") color = boneGrindPatchColor;
+		else if (asset.label == "bone_grind_patch")
+			color = (gWorkflowStage == WorkflowStage::BoneGrinding) ? boneGrindPatchColor : boneColor;
 		else if (asset.label == "ligament_result") color = ligamentColor;
 
 		Vector3r offset = asset.translation;
@@ -4025,13 +4131,12 @@ void renderWorkflowToolVisual()
 		return;
 	}
 	float toolColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-	if (MiniGL::isHapticAvailable())
+	if (base != nullptr)
 	{
-		glPushAttrib(GL_DEPTH_BUFFER_BIT | GL_ENABLE_BIT);
-		glDisable(GL_DEPTH_TEST);
-		glDepthMask(GL_FALSE);
-		drawWorkflowMesh(toolVD, toolMesh, toolColor);
-		glPopAttrib();
+		base->shaderBegin(toolColor);
+		glUniform3fv(base->getShader().getUniform("surface_color"), 1, toolColor);
+		Visualization::drawMesh(toolVD, toolMesh, 0u, toolColor);
+		base->shaderEnd();
 	}
 	else
 	{
@@ -4291,7 +4396,7 @@ int runWorkflowAutoDemoSmoke(const int argc, char** argv)
 			softVisualFractureOk;
 	const bool stage2LigamentInteractive =
 		(gAutoDemoState.stage2TetModelCount == 1u) &&
-		(gAutoDemoState.stage2ActiveSoftAsset == "rendai_tex.obj");
+		isWorkflowLigamentAssetName(gAutoDemoState.stage2ActiveSoftAsset);
 	const bool stage2DiscInteractive =
 		(gAutoDemoState.stage2TetModelCount > 1u) ||
 		(gAutoDemoState.stage2ActiveSoftAsset == "target_disc.obj");
@@ -4300,7 +4405,7 @@ int runWorkflowAutoDemoSmoke(const int argc, char** argv)
 		(gAutoDemoState.stage3ActiveSoftAsset == "target_disc.obj");
 	const bool stage3LigamentInteractive =
 		(gAutoDemoState.stage3TetModelCount > 1u) ||
-		(gAutoDemoState.stage3ActiveSoftAsset == "rendai_tex.obj");
+		isWorkflowLigamentAssetName(gAutoDemoState.stage3ActiveSoftAsset);
 	const bool softStageIsolationOk =
 		stage2LigamentInteractive &&
 		!stage2DiscInteractive &&
