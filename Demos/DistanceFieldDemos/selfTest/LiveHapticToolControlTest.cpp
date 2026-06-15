@@ -39,6 +39,9 @@ int main()
 		PBD::DemoHaptics::liveHapticSelectionStateFromButtons(false, true),
 		"second haptic button activates live tool");
 	ok &= expectTrue(
+		!PBD::DemoHaptics::liveHapticSelectionStateFromButtons(false, true, false),
+		"ignored second haptic button must not activate single-button devices");
+	ok &= expectTrue(
 		!PBD::DemoHaptics::liveHapticSelectionStateFromButtons(false, false),
 		"released haptic buttons deactivate live tool");
 	const Vector3r viewOffset(static_cast<Real>(0.5), static_cast<Real>(-1.0), static_cast<Real>(2.0));

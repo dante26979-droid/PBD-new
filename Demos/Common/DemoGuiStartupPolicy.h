@@ -31,6 +31,8 @@ namespace PBD
 			(arg == "--workflow-auto-demo") ||
 			(arg == "--workflow-auto-demo-smoke") ||
 			(arg == "--workflow-haptic-diagnostics") ||
+			(arg == "--haptic-two-buttons") ||
+			(arg == "--haptic-no-auto-calibrate") ||
 			(arg == "--haptic-init-smoke");
 	}
 

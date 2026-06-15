@@ -33,9 +33,12 @@ namespace PBD
 			return LiveHapticToolSample(active, position);
 		}
 
-		inline bool liveHapticSelectionStateFromButtons(const bool firstButtonDown, const bool secondButtonDown)
+		inline bool liveHapticSelectionStateFromButtons(
+			const bool firstButtonDown,
+			const bool secondButtonDown,
+			const bool acceptSecondButton = true)
 		{
-			return firstButtonDown || secondButtonDown;
+			return firstButtonDown || (acceptSecondButton && secondButtonDown);
 		}
 
 		inline LiveHapticToolSample offsetLiveHapticToolSample(

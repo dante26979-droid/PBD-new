@@ -27,6 +27,7 @@
 #define _USE_MATH_DEFINES
 
 #include "math.h"
+#include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -115,6 +116,7 @@ bool MiniGL::gHapticAvailable = false;
 Vector3r MiniGL::gHapticPos;
 HLdouble MiniGL::gHapticXform[16] = { 0.0 };
 double MiniGL::gHapticWorkspaceScale = 1.0;
+bool MiniGL::gAcceptSecondHapticButton = true;
 hduMatrix MiniGL::gDeltaTMat;
 
 
@@ -1121,7 +1123,8 @@ void HLCALLBACK MiniGL::hlButtonDownCB(HLenum event, HLuint object, HLenum threa
 		gButton2DownState = true;
 	gButtonDownState = DemoHaptics::liveHapticSelectionStateFromButtons(
 		gButton1DownState,
-		gButton2DownState);
+		gButton2DownState,
+		gAcceptSecondHapticButton);
 	hlGetDoublev(HL_PROXY_POSITION, gStartDragProxyPos);
 	hlGetDoublev(HL_PROXY_ROTATION, gStartDragProxyRot);
 
@@ -1165,7 +1168,8 @@ void HLCALLBACK MiniGL::hlButtonUpCB(HLenum event, HLuint object, HLenum thread,
 		gButton2DownState = false;
 	gButtonDownState = DemoHaptics::liveHapticSelectionStateFromButtons(
 		gButton1DownState,
-		gButton2DownState);
+		gButton2DownState,
+		gAcceptSecondHapticButton);
 	/*HapticManager* pThis = static_cast<HapticManager*>(userdata);
 
 	if (pThis->isManipulating())
@@ -1533,15 +1537,21 @@ bool MiniGL::refreshHapticButtonState()
 	HLboolean button2Down = HL_FALSE;
 	hlGetBooleanv(HL_BUTTON1_STATE, &button1Down);
 	const HLerror button1Error = hlGetError();
-	hlGetBooleanv(HL_BUTTON2_STATE, &button2Down);
-	const HLerror button2Error = hlGetError();
+	HLerror button2Error;
+	memset(&button2Error, 0, sizeof(button2Error));
+	if (gAcceptSecondHapticButton)
+	{
+		hlGetBooleanv(HL_BUTTON2_STATE, &button2Down);
+		button2Error = hlGetError();
+	}
 	if (!HL_ERROR(button1Error) && !HL_ERROR(button2Error))
 	{
 		gButton1DownState = (button1Down == HL_TRUE);
-		gButton2DownState = (button2Down == HL_TRUE);
+		gButton2DownState = gAcceptSecondHapticButton && (button2Down == HL_TRUE);
 		gButtonDownState = DemoHaptics::liveHapticSelectionStateFromButtons(
 			gButton1DownState,
-			gButton2DownState);
+			gButton2DownState,
+			gAcceptSecondHapticButton);
 	}
 	return gButtonDownState;
 }

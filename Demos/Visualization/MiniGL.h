@@ -182,6 +182,7 @@ namespace PBD
 		static Vector3r gHapticPos;
 		static HLdouble gHapticXform[16];
 		static double gHapticWorkspaceScale;
+		static bool gAcceptSecondHapticButton;
 		static hduMatrix gDeltaTMat;
 
 		/* Position and orientation of drag object at start of drag. */
@@ -319,6 +320,8 @@ namespace PBD
 		static const HLdouble* getHapticXForm() { return gHapticXform; }
 		static void setHapticWorkspaceScale(const double scale);
 		static double getHapticWorkspaceScale() { return gHapticWorkspaceScale; }
+		static void setAcceptSecondHapticButton(const bool accept) { gAcceptSecondHapticButton = accept; }
+		static bool getAcceptSecondHapticButton() { return gAcceptSecondHapticButton; }
 		static bool refreshHapticButtonState();
 		static const hduMatrix& getDeltaXForm() { return gDeltaTMat; }
 		static void updateDeltaTransformMat();

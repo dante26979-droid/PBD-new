@@ -13,6 +13,8 @@ namespace PBD
 		bool scriptedToolPlayback = false;
 		bool autoStageAdvance = false;
 		bool hapticToolControl = true;
+		bool hapticAcceptSecondButton = false;
+		bool hapticAutoCalibrateOffset = true;
 		bool showParameterGui = true;
 		bool liveHapticVisualContext = true;
 		double hapticWorkspaceScale = 1.0;
@@ -100,6 +102,8 @@ namespace PBD
 		policy.hapticToolControl = !autoDemo;
 		policy.showParameterGui = false;
 		policy.liveHapticVisualContext = !autoDemo;
+		policy.hapticAcceptSecondButton = workflowRuntimeHasArg(argc, argv, "--haptic-two-buttons");
+		policy.hapticAutoCalibrateOffset = !workflowRuntimeHasArg(argc, argv, "--haptic-no-auto-calibrate");
 		policy.hapticWorkspaceScale = parseHapticWorkspaceScale(argc, argv);
 		policy.hapticVisualOffset = parseHapticVisualOffset(argc, argv);
 		return policy;

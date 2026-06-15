@@ -53,6 +53,9 @@ bool gWorkflowHapticToolActive = false;
 bool gWorkflowToolVisibilityMarkerValid = false;
 Vector3r gWorkflowToolVisibilityMarkerPosition = Vector3r::Zero();
 Vector3r gWorkflowHapticToolViewOffset = Vector3r::Zero();
+Vector3r gWorkflowConfiguredHapticToolViewOffset = Vector3r::Zero();
+bool gWorkflowHapticAutoCalibrateOffset = true;
+bool gWorkflowHapticOffsetCalibrated = false;
 bool gWorkflowHapticDiagnosticsEnabled = false;
 std::string gWorkflowExePath;
 std::string gWorkflowSceneFile;
@@ -1218,6 +1221,20 @@ namespace
 		return true;
 	}
 
+	bool calibrateWorkflowHapticOffsetToCurrentTool(const Vector3r& rawHapticPosition)
+	{
+		unsigned int toolVertices = 0u;
+		unsigned int toolFaces = 0u;
+		Vector3r toolCenter = Vector3r::Zero();
+		Vector3r toolControl = Vector3r::Zero();
+		if (!workflowCurrentToolStats(toolVertices, toolFaces, toolCenter, toolControl))
+			return false;
+
+		gWorkflowHapticToolViewOffset = toolControl - rawHapticPosition;
+		gWorkflowHapticOffsetCalibrated = true;
+		return true;
+	}
+
 	void printWorkflowHapticDiagnostics(const char* reason, const bool force)
 	{
 		if (!gWorkflowHapticDiagnosticsEnabled && !force)
@@ -1494,6 +1511,8 @@ void buildStageContext(WorkflowStageContext& ctx, WorkflowStage stage)
 	gWorkflowHapticToolWasActive = false;
 	gWorkflowHapticToolActive = false;
 	gWorkflowToolVisibilityMarkerValid = false;
+	gWorkflowHapticOffsetCalibrated = false;
+	gWorkflowHapticToolViewOffset = gWorkflowConfiguredHapticToolViewOffset;
 
 	switch (stage)
 	{
@@ -2297,8 +2316,29 @@ std::vector<std::array<unsigned int, 2> > collectWorkflowTetEdgesExcluding(
 
 	ParticleData& pd = model->getParticles();
 	const unsigned int offset = tetModel->getIndexOffset();
+	Real minY = REAL_MAX;
+	Real maxY = -REAL_MAX;
 	for (unsigned int i = offset; i < offset + tetModel->getParticleMesh().numVertices(); i++)
-		pd.setMass(i, static_cast<Real>(1.0));
+	{
+		const Real y = pd.getPosition(i).y();
+		minY = std::min(minY, y);
+		maxY = std::max(maxY, y);
+	}
+	const Real yExtent = std::max(maxY - minY, static_cast<Real>(0.0));
+	const Real fixedEndBand = std::min(
+		std::max(yExtent * static_cast<Real>(0.08), static_cast<Real>(0.35)),
+		yExtent * static_cast<Real>(0.25));
+	for (unsigned int i = offset; i < offset + tetModel->getParticleMesh().numVertices(); i++)
+	{
+		Real mass = static_cast<Real>(1.0);
+		if ((ctx.stage == WorkflowStage::LigamentRemoval) && (fixedEndBand > static_cast<Real>(0.0)))
+		{
+			const Real y = pd.getPosition(i).y();
+			if ((y <= minY + fixedEndBand) || (y >= maxY - fixedEndBand))
+				mass = static_cast<Real>(0.0);
+		}
+		pd.setMass(i, mass);
+	}
 
 	VertexData& visVertices = tetModel->getVisVertices();
 	IndexedFaceMesh& visMesh = tetModel->getVisMesh();
@@ -3697,6 +3737,12 @@ bool updateWorkflowLiveHapticTool()
 
 	const PBD::DemoHaptics::LiveHapticToolSample rawSample =
 		PBD::DemoHaptics::sampleMiniGLLiveHapticTool();
+	if (rawSample.active && !gWorkflowHapticToolWasActive &&
+		gWorkflowHapticAutoCalibrateOffset && !gWorkflowHapticOffsetCalibrated &&
+		calibrateWorkflowHapticOffsetToCurrentTool(rawSample.position))
+	{
+		printWorkflowHapticDiagnostics("haptic_auto_calibrated", true);
+	}
 	const PBD::DemoHaptics::LiveHapticToolSample sample =
 		PBD::DemoHaptics::offsetLiveHapticToolSample(rawSample, gWorkflowHapticToolViewOffset);
 	gWorkflowHapticToolActive = sample.active;
@@ -3709,9 +3755,6 @@ bool updateWorkflowLiveHapticTool()
 		gWorkflowHapticToolWasActive = false;
 		return false;
 	}
-
-	moveWorkflowToolVisualTo(sample.position);
-	printWorkflowHapticDiagnostics("haptic_sample", false);
 
 	const bool justActivated = sample.active && !gWorkflowHapticToolWasActive;
 	const bool justReleased = !sample.active && gWorkflowHapticToolWasActive;
@@ -3728,6 +3771,8 @@ bool updateWorkflowLiveHapticTool()
 		return false;
 	}
 	gWorkflowHapticToolWasActive = true;
+	moveWorkflowToolVisualTo(sample.position);
+	printWorkflowHapticDiagnostics("haptic_sample", false);
 
 	if (gWorkflowStage == WorkflowStage::BoneGrinding)
 	{
@@ -4701,6 +4746,9 @@ int main(int argc, char** argv)
 	base = new DemoBase();
 	base->init(argc, argv, "Spine Workflow Demo");
 	gWorkflowHapticToolControl = runtimePolicy.hapticToolControl;
+	gWorkflowHapticAutoCalibrateOffset = runtimePolicy.hapticAutoCalibrateOffset;
+	MiniGL::setAcceptSecondHapticButton(runtimePolicy.hapticAcceptSecondButton);
+	gWorkflowConfiguredHapticToolViewOffset = runtimePolicy.hapticVisualOffset;
 	gWorkflowHapticToolViewOffset = runtimePolicy.hapticVisualOffset;
 	MiniGL::setHapticWorkspaceScale(runtimePolicy.hapticWorkspaceScale);
 	if (!gWorkflowMiniGLScreenshotSmoke && !gWorkflowLivePerformanceSmoke)
@@ -4729,6 +4777,8 @@ int main(int argc, char** argv)
 			<< "workflow_haptic_init_smoke_status=" << (ok ? "ok" : "failed") << "\n"
 			<< "workflow_haptic_available=" << (hapticAvailable ? 1 : 0) << "\n"
 			<< "workflow_haptic_control_enabled=" << (gWorkflowHapticToolControl ? 1 : 0) << "\n"
+			<< "workflow_haptic_accept_second_button=" << (MiniGL::getAcceptSecondHapticButton() ? 1 : 0) << "\n"
+			<< "workflow_haptic_auto_calibrate_offset=" << (gWorkflowHapticAutoCalibrateOffset ? 1 : 0) << "\n"
 			<< "workflow_haptic_workspace_scale=" << std::fixed << std::setprecision(3) << MiniGL::getHapticWorkspaceScale() << "\n"
 			<< "workflow_haptic_visual_offset=" << workflowVecText(gWorkflowHapticToolViewOffset) << "\n"
 			<< "workflow_haptic_raw_pos=" << workflowVecText(hapticAvailable ? MiniGL::getHapticPos() : Vector3r::Zero()) << "\n"

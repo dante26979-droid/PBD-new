@@ -36,8 +36,18 @@ int main()
 		require(!policy.autoStageAdvance, "no-argument startup must not auto-advance stages.");
 		require(!policy.showParameterGui, "no-argument haptic workflow must keep the workflow parameter panel hidden.");
 		require(policy.liveHapticVisualContext, "no-argument haptic workflow must use the independent-demo visual path.");
+		require(!policy.hapticAcceptSecondButton, "default haptic workflow must use TouchX-compatible single-button mode.");
+		require(policy.hapticAutoCalibrateOffset, "default haptic workflow must auto-calibrate the first live press.");
 		require(policy.hapticWorkspaceScale == 1.0, "default haptic workspace scale must preserve the independent demo mapping.");
 		require(policy.hapticVisualOffset == Vector3r::Zero(), "default haptic visual offset must not move the haptic workspace.");
+	}
+	{
+		const PBD::WorkflowRuntimePolicy policy = parse({ "SpineWorkflowDemo", "--haptic-two-buttons" });
+		require(policy.hapticAcceptSecondButton, "--haptic-two-buttons must enable the second haptic button.");
+	}
+	{
+		const PBD::WorkflowRuntimePolicy policy = parse({ "SpineWorkflowDemo", "--haptic-no-auto-calibrate" });
+		require(!policy.hapticAutoCalibrateOffset, "--haptic-no-auto-calibrate must disable first-press calibration.");
 	}
 	{
 		const PBD::WorkflowRuntimePolicy policy = parse({ "SpineWorkflowDemo", "--workflow-auto-demo" });
