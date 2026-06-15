@@ -64,8 +64,8 @@ int main()
 		"stage 1 interactive bone must use the independent grinding demo static material color.");
 
 	PBD::workflowInteractiveSurfaceColor(PBD::WorkflowSceneDisplayStage::LigamentRemoval, color);
-	require(color[0] == 0.1f && color[1] == 0.4f && color[2] == 0.7f && color[3] == 1.0f,
-		"stage 2 interactive ligament must keep the independent demo surface color.");
+	require(color[0] == 0.95f && color[1] == 0.72f && color[2] == 0.18f && color[3] == 1.0f,
+		"stage 2 interactive ligament must render as yellow ligament tissue.");
 
 	PBD::workflowInteractiveSurfaceColor(PBD::WorkflowSceneDisplayStage::DiscRemoval, color);
 	require(color[0] == 0.1f && color[1] == 0.4f && color[2] == 0.7f && color[3] == 1.0f,
@@ -133,13 +133,13 @@ int main()
 		false,
 		false),
 		"stage 3 must keep textured bone context visible when stage 1 has no preserved bone result.");
-	require(!PBD::workflowSceneContextLayerVisible(
+	require(PBD::workflowSceneContextLayerVisible(
 		PBD::WorkflowSceneLayerRole::BoneReference,
 		PBD::WorkflowSceneDisplayStage::LigamentRemoval,
 		true,
 		false,
 		false),
-		"stage 2 must hide textured bone context only when a real preserved bone result exists.");
+		"stage 2 must keep non-interactive bone context visible even when a preserved interactive bone result exists.");
 	require(PBD::workflowSceneContextLayerVisible(
 		PBD::WorkflowSceneLayerRole::LigamentReference,
 		PBD::WorkflowSceneDisplayStage::DiscRemoval,

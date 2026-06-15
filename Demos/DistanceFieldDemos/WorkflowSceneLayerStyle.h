@@ -47,6 +47,11 @@ namespace PBD
 			workflowInteractiveBoneColor(color);
 			return;
 		}
+		if (stage == WorkflowSceneDisplayStage::LigamentRemoval)
+		{
+			color[0] = 0.95f; color[1] = 0.72f; color[2] = 0.18f; color[3] = 1.0f;
+			return;
+		}
 		workflowIndependentSurfaceColor(color);
 	}
 
@@ -168,7 +173,8 @@ namespace PBD
 		case WorkflowSceneLayerRole::BoneReference:
 			if (stage == WorkflowSceneDisplayStage::BoneGrinding)
 				return true;
-			return !boneResultAvailable && (stage != WorkflowSceneDisplayStage::Completed);
+			(void)boneResultAvailable;
+			return stage != WorkflowSceneDisplayStage::Completed;
 		case WorkflowSceneLayerRole::NerveContext:
 		case WorkflowSceneLayerRole::OtherDiscContext:
 			return stage != WorkflowSceneDisplayStage::Completed || discResultAvailable;

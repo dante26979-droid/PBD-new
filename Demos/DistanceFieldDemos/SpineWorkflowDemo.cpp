@@ -816,8 +816,8 @@ namespace
 			foregroundColor[0] = 0.02f; foregroundColor[1] = 0.82f; foregroundColor[2] = 1.0f; foregroundColor[3] = 1.0f;
 			return;
 		}
-		normalColor[0] = 1.0f; normalColor[1] = 0.36f; normalColor[2] = 0.12f; normalColor[3] = 0.95f;
-		foregroundColor[0] = 1.0f; foregroundColor[1] = 0.12f; foregroundColor[2] = 0.04f; foregroundColor[3] = 1.0f;
+		normalColor[0] = 0.95f; normalColor[1] = 0.72f; normalColor[2] = 0.18f; normalColor[3] = 0.95f;
+		foregroundColor[0] = 1.0f; foregroundColor[1] = 0.86f; foregroundColor[2] = 0.15f; foregroundColor[3] = 1.0f;
 	}
 
 	void releaseWorkflowGpuMesh(WorkflowVisualMeshAsset& asset)
@@ -901,7 +901,8 @@ namespace
 		case WorkflowSceneLayerRole::BoneReference:
 			if (stage == WorkflowStage::BoneGrinding)
 				return true;
-			return !boneResultAvailable && (stage != WorkflowStage::Completed);
+			(void)boneResultAvailable;
+			return stage != WorkflowStage::Completed;
 		case WorkflowSceneLayerRole::NerveContext:
 		case WorkflowSceneLayerRole::OtherDiscContext:
 			if ((gWorkflowVisualMode == WorkflowVisualMode::Performance) && (stage == WorkflowStage::Completed))
@@ -999,16 +1000,20 @@ namespace
 
 	bool workflowVisualSceneReplacesDefaultTargets()
 	{
-		const bool stage2HidesDefaultBone =
-			workflowVisibleSceneLayerCount(
+		const bool stage2KeepsBoneContext =
+			workflowSceneLayerRoleVisible(
+				WorkflowSceneLayerRole::BoneReference,
 				WorkflowStage::LigamentRemoval,
 				true,
 				false,
-				false) < workflowVisibleSceneLayerCount(
-					WorkflowStage::BoneGrinding,
-					false,
-					false,
-					false);
+				false);
+		const bool stage2HidesDefaultLigament =
+			!workflowSceneLayerRoleVisible(
+				WorkflowSceneLayerRole::LigamentReference,
+				WorkflowStage::LigamentRemoval,
+				true,
+				false,
+				false);
 		const bool stage3HidesDefaultLigament =
 			workflowVisibleSceneLayerCount(
 				WorkflowStage::DiscRemoval,
@@ -1029,7 +1034,10 @@ namespace
 					true,
 					true,
 					false);
-		return stage2HidesDefaultBone && stage3HidesDefaultLigament && completedHidesDefaultDisc;
+		return stage2KeepsBoneContext &&
+			stage2HidesDefaultLigament &&
+			stage3HidesDefaultLigament &&
+			completedHidesDefaultDisc;
 	}
 
 	void workflowSceneLayerColor(const WorkflowSceneLayerRole role, float color[4])
